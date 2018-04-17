@@ -24,21 +24,30 @@ def create_wordcloud(dataframe, stop_words):
 		image.save(key + ".png")
 
 
-dataset = pd.read_csv(sys.argv[1], sep="\t")
-
-newframe = dataset[["Title", "Content"]]
-f = lambda x: x['Title'] + ' ' + x['Content']
-newframe = newframe.apply(f, 1)
+df = pd.read_csv(sys.argv[1], sep="\t")
 
 additional_stop_words = ['said', 'new', 'film', 'year', 'years', 'like', 'player', 'players', 'team', 'teams', 'game', 'say', 'time', 'times', 'says', 'club', 'movie', 'people']
 stop_words = ENGLISH_STOP_WORDS.union(additional_stop_words).union(set(STOPWORDS))
+data = {k: v['Title'] + ' ' + v['Content'] for k, v in df.groupby('Category')}
 
-count_vect = CountVectorizer(stop_words=stop_words)
-X = count_vect.fit_transform(newframe)
+for category, text  in data.items():
+    newframe = text
 
-vocab = list(count_vect.get_feature_names())
+    count_vect = CountVectorizer(stop_words=stop_words)
+    X = count_vect.fit_transform(newframe)
 
-counts = X.sum(axis=0).A1
-freq_distribution = Counter(dict(zip(vocab, counts)))
+    vocab = list(count_vect.get_feature_names())
 
-print (freq_distribution.most_common(10))
+    counts = X.sum(axis=0).A1
+    freq_distribution = Counter(dict(zip(vocab, counts)))
+
+    top = freq_distribution.most_common(100)
+    #print (top)
+
+    top_words = ""
+    for word, count in top:
+        top_words += " " + word
+
+    wordcloud = WordCloud(width = 600, height = 400, background_color = 'white').generate(top_words)
+    image = wordcloud.to_image()
+    image.save(category + ".png")
