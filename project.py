@@ -19,10 +19,10 @@ def create_wordcloud(dataframe, stop_words):
     data = {k: v['Title'] + ' ' + v['Content'] for k, v in df.groupby('Category')}
 
     for category, newframe  in data.items():
-        count_vect = CountVectorizer(stop_words=stop_words,analyzer="word", token_pattern=r"(?u)\b\w\w+\'*\w*\b")
+        count_vect = CountVectorizer(stop_words=stop_words,analyzer="word", token_pattern=r"(?u)\b\w\w*\'*\w+\b")
         X = count_vect.fit_transform(newframe)
 
-        vocab = list(count_vect.get_feature_names())
+        vocab = list(count_vect.get_feature_names())    
 
         counts = X.sum(axis=0).A1
         freq_distribution = Counter(dict(zip(vocab, counts)))
