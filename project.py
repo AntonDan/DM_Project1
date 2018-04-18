@@ -18,10 +18,8 @@ def create_wordcloud(dataframe, stop_words):
 
     data = {k: v['Title'] + ' ' + v['Content'] for k, v in df.groupby('Category')}
 
-    for category, text  in data.items():
-        newframe = text
-
-        count_vect = CountVectorizer(stop_words=stop_words)
+    for category, newframe  in data.items():
+        count_vect = CountVectorizer(stop_words=stop_words,analyzer="word", token_pattern=r"(?u)\b\w\w+\'*\w*\b")
         X = count_vect.fit_transform(newframe)
 
         vocab = list(count_vect.get_feature_names())
@@ -31,7 +29,6 @@ def create_wordcloud(dataframe, stop_words):
 
         top = freq_distribution.most_common(100)
         #print (top)
-
 
         wordcloud = WordCloud(width = 600, height = 400, background_color = 'white').generate_from_frequencies(dict(top))
         image = wordcloud.to_image()
