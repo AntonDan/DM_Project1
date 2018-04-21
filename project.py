@@ -26,7 +26,7 @@ import sys
 test_size = 0.25
 svm_C = 1.0
 naive_bayes_a = 0.05
-random_forests_estimators = 100
+random_forests_estimators = 10
 k_fold = 10
 
 def create_wordcloud(dataframe, stop_words):
@@ -107,14 +107,10 @@ def classify(classifier, name, load_grids, load_labels, load_proba):
 		label_proba = grid_search.best_estimator_.predict_proba(test_data)
 		pickle.dump(label_proba, open(name + "_proba.pic", "wb"))
 
-	# Getting label names
-	predicted_categories = le.inverse_transform(predicted_labels)
-
 	print predicted_labels
-	print predicted_categories
 	print label_proba
 	print ("\n")
-	return predicted_categories
+	return predicted_labels
 
 def print_step_info(step_name, info=""):
 	print ("="*60)
@@ -191,7 +187,11 @@ classifier_list = [
 
 for clf, name, color in classifier_list:
 	predicted_labels = classify(clf, name, args.load_grids, args.load_labels, args.load_probs)
-	category_df = pd.DataFrame({"Predicted_Category" : predicted_labels})
+	predicted_categories = le.inverse_transform(predicted_labels)
+
+	category_df = pd.DataFrame({"Predicted_Category" : predicted_categories})
+	if (test_labels is not None):
+		print (classification_report(predicted_labels, test_labels))
 	out_df = pd.DataFrame({"ID" : test_df['Id']})
 	out_df = out_df.join(category_df)
 	out_df.to_csv(name + "_output.csv", sep='\t')
