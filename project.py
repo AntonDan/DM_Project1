@@ -22,15 +22,41 @@ from collections import Counter
 
 import sys
 
-# Public vars
-test_size = 0.25
+# Public parameteres
+test_size = 0.3
+
 svm_C = 1.0
 naive_bayes_a = 0.05
 random_forests_estimators = 10
+svd_n_components = 100
 k_fold = 10
 
-def create_wordcloud(dataframe, stop_words):
+tuned_parameters = {
+		"SVM" :[ 
+			{'clf__kernel': ['linear'], 'clf__gamma': [0.0001], 'clf__C': [1]},
+			{'clf__kernel': ['linear'], 'clf__gamma': [0.001], 'clf__C': [10]},
+			{'clf__kernel': ['linear'], 'clf__gamma': [0.01], 'clf__C': [100]},
+			{'clf__kernel': ['linear'], 'clf__gamma': [0.1], 'clf__C': [1000]},
+		#	{'kernel': ['rbf'], 'gamma': [0.0001], 'C': [1]},
+		#	{'kernel': ['rbf'], 'gamma': [0.001], 'C': [10]},
+		#	{'kernel': ['rbf'], 'gamma': [0.01], 'C': [100]},
+		#	{'kernel': ['rbf'], 'gamma': [0.1], 'C': [1000]}
+		],
 
+		"Multinomial Naive Bayes" : [
+			{}
+		],
+
+		"Random forest" : [
+			{}
+		]
+	}
+
+# Create Wordcloud
+# Initially we create a dictionary with an entry of titles and contents for earch category
+# For every category a countvectorizer is created and the wordcloud is created by the 100 
+# most common tokens in the frequency distribution   
+def create_wordcloud(dataframe, stop_words):
 	data = {k: v['Title'] + ' ' + v['Content'] for k, v in df.groupby('Category')}
 
 	for category, newframe  in data.items():
@@ -43,18 +69,20 @@ def create_wordcloud(dataframe, stop_words):
 		freq_distribution = Counter(dict(zip(vocab, counts)))
 
 		top = freq_distribution.most_common(100)
-		#print (top)
 
 		wordcloud = WordCloud(width = 600, height = 400, background_color = 'white').generate_from_frequencies(dict(top))
 		image = wordcloud.to_image()
 		image.save(category + ".png")
 
-def classify(classifier, name, load_grids, load_labels, load_proba):
+
+# The classification function uses the pipeline in order to ease the procedure
+# 10-fold cross validation is achieved through the GridSearchCV parameteres  
+def classify(classifier, name, grid_params, load_grids, load_labels, load_proba):
 	print("< Beginning " + name + " classification >")
 
 	count_vectorizer = CountVectorizer()
 	transformer = TfidfTransformer()
-	svd = TruncatedSVD(n_components=100, random_state=42)
+	svd = TruncatedSVD(n_components=svd_n_components, random_state=42)
 
 	if name == "Multinomial Naive Bayes": 
 		pipeline = Pipeline([
@@ -70,6 +98,7 @@ def classify(classifier, name, load_grids, load_labels, load_proba):
 			('clf', classifier)
 		])
 
+	print_seperator()
 	grid_search = None
 	if (load_grids and os.path.exists(name + ".pic")):
 		print ("Loading grid data from file")
@@ -78,11 +107,14 @@ def classify(classifier, name, load_grids, load_labels, load_proba):
 		if (load_grids):
 			print ("Error: no " + name + " file")
 		print ("Creating new grid for " + name)
-		grid_search = GridSearchCV(pipeline, {}, cv=k_fold, n_jobs=8, verbose=1)
+		print ("Running grid search with the following parameters: ")
+		print (grid_params)
+		grid_search = GridSearchCV(pipeline, grid_params, cv=k_fold, n_jobs=8, verbose=1)
 		grid_search.fit(train_data, train_labels)
 		pickle.dump(grid_search, open(name + ".pic", "wb"))
 
 
+	print_seperator()
 	predicted_labels = None
 	if (load_labels and os.path.exists(name + "_labels.pic")):
 		print ("Loading prediction data from file")
@@ -95,7 +127,7 @@ def classify(classifier, name, load_grids, load_labels, load_proba):
 		pickle.dump(predicted_labels, open(name + "_labels.pic", "wb"))
 
 
-	print ("Calculating label probabilities")
+	print_seperator()
 	label_proba = None
 	if (load_proba and os.path.exists(name + "_proba.pic")):
 		print ("Loading prediction data from file")
@@ -103,23 +135,29 @@ def classify(classifier, name, load_grids, load_labels, load_proba):
 	else:
 		if (load_proba):
 			print ("Error: no " + name + "_proba file")
-		print ("Creating new label prediction list for " + name + " labels")
+		print ("Creating new label probability list for " + name + " labels")
 		label_proba = grid_search.best_estimator_.predict_proba(test_data)
 		pickle.dump(label_proba, open(name + "_proba.pic", "wb"))
 
+	print ("Done!")
+	print_seperator()
 	print predicted_labels
 	print label_proba
 	print ("\n")
 	return predicted_labels
 
-def print_step_info(step_name, info=""):
+
+# Simple print function that displays a seperator and the step name 
+def print_step_info(step_name, info=None):
 	print ("="*60)
 	temp = 60 - len(step_name)
 	print ("*"*(int(temp/2)) + step_name + "*"*(int(temp/2) + temp%2))
-	print (info)
+	if (info is not None):
+		print (info)
+	print ('')
 
-
-
+def print_seperator():
+	print('-'*60)
 
 
 # MAIN
@@ -180,21 +218,22 @@ print_step_info(step_name="Testing")
 
 classifier_list = [
 		(SVC(probability=True), "SVM","c"),
-		(RandomForestClassifier(n_estimators=random_forests_estimators,n_jobs=-1), "Random forest","m"),
 		(MultinomialNB(alpha=naive_bayes_a),"Multinomial Naive Bayes","y"),
+		(RandomForestClassifier(n_estimators=random_forests_estimators,n_jobs=-1), "Random forest","m"),
 		#(KNeighborsClassifier(n_neighbors=k_neighbors_num,n_jobs=-1), "k-Nearest Neighbor","g"),
 	]
 
 for clf, name, color in classifier_list:
-	predicted_labels = classify(clf, name, args.load_grids, args.load_labels, args.load_probs)
-	predicted_categories = le.inverse_transform(predicted_labels)
+	for grid_params in tuned_parameters[name]:
+		predicted_labels = classify(clf, name, grid_params, args.load_grids, args.load_labels, args.load_probs)
+		predicted_categories = le.inverse_transform(predicted_labels)
+		if (test_labels is not None):
+			print (classification_report(predicted_labels, test_labels))
 
-	category_df = pd.DataFrame({"Predicted_Category" : predicted_categories})
-	if (test_labels is not None):
-		print (classification_report(predicted_labels, test_labels))
-	out_df = pd.DataFrame({"ID" : test_df['Id']})
-	out_df = out_df.join(category_df)
-	out_df.to_csv(name + "_output.csv", sep='\t')
+		category_df = pd.DataFrame({"Predicted_Category" : predicted_categories})
+		out_df = pd.DataFrame({"ID" : test_df['Id']})
+		out_df = out_df.join(category_df)
+		out_df.to_csv(name + "_output.csv", sep='\t')
 
 #print feature_matrix.
 #print classification_report(test_labels, predicted_labels, target_names=list(le.classes_))
