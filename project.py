@@ -6,8 +6,9 @@ import os
 import argparse
 
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer, TfidfTransformer
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
 from sklearn.svm import SVC
+from scipy import stats
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.decomposition import TruncatedSVD
@@ -33,7 +34,8 @@ k_fold = 10
 
 tuned_parameters = {
 		"SVM" :[ 
-			{'clf__kernel': ['rbf', 'linear'], 'clf__gamma': [0.001, 0.01, 0.1, 1], 'clf__C': [1,10,100,1000]}
+			#{'clf__kernel': ['rbf'], 'clf__gamma': stats.expon(scale=.1), 'clf__C': stats.expon(scale=10)}
+			 {'clf__gamma': [0.6909752275782135], 'clf__C': [2.627930391414668], 'clf__kernel': ['rbf']}
 		],
 
 		"Multinomial Naive Bayes" : [
@@ -102,6 +104,7 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba)
 		print ("Creating new grid for " + name)
 		print ("Running grid search with the following parameters: ")
 		print (grid_params)
+		#grid_search = RandomizedSearchCV(pipeline, param_distributions=grid_params, cv=k_fold, n_jobs=8, verbose=1)
 		grid_search = GridSearchCV(pipeline, grid_params, cv=k_fold, n_jobs=8, verbose=1)
 		grid_search.fit(train_data, train_labels)
 		pickle.dump(grid_search, open(name + ".pic", "wb"))
@@ -213,8 +216,8 @@ print_step_info(step_name="Testing")
 
 classifier_list = [
 		(SVC(probability=True), "SVM","c"),
-		#(MultinomialNB(alpha=naive_bayes_a),"Multinomial Naive Bayes","y"),
-		#(RandomForestClassifier(n_estimators=random_forests_estimators,n_jobs=-1), "Random forest","m"),
+		(MultinomialNB(alpha=naive_bayes_a),"Multinomial Naive Bayes","y"),
+		(RandomForestClassifier(n_estimators=random_forests_estimators,n_jobs=-1), "Random forest","m"),
 		#(KNeighborsClassifier(n_neighbors=k_neighbors_num,n_jobs=-1), "k-Nearest Neighbor","g"),
 	]
 
@@ -223,12 +226,13 @@ for clf, name, color in classifier_list:
 		predicted_labels = classify(clf, name, grid_params, args.load_grids, args.load_labels, args.load_probs)
 		predicted_categories = le.inverse_transform(predicted_labels)
 		if (test_labels is not None):
-			print (classification_report(predicted_labels, test_labels))
-
-		category_df = pd.DataFrame({"Predicted_Category" : predicted_categories})
-		out_df = pd.DataFrame({"ID" : test_df['Id']})
-		out_df = out_df.join(category_df)
-		out_df.to_csv(name + "_output.csv", sep='\t')
+			print (classification_report(predicted_labels, test_labels))		
+		dic = {
+			"Id" : test_df['Id'],
+			"Category" : predicted_categories
+		}
+		out_df = pd.DataFrame(dic, columns=['Id', 'Category'])
+		out_df.to_csv(name + "_output.csv", sep=',', index=False)
 
 #print feature_matrix.
 #print classification_report(test_labels, predicted_labels, target_names=list(le.classes_))
