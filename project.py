@@ -33,14 +33,7 @@ k_fold = 10
 
 tuned_parameters = {
 		"SVM" :[ 
-			{'clf__kernel': ['linear'], 'clf__gamma': [0.0001], 'clf__C': [1]},
-			{'clf__kernel': ['linear'], 'clf__gamma': [0.001], 'clf__C': [10]},
-			{'clf__kernel': ['linear'], 'clf__gamma': [0.01], 'clf__C': [100]},
-			{'clf__kernel': ['linear'], 'clf__gamma': [0.1], 'clf__C': [1000]},
-		#	{'kernel': ['rbf'], 'gamma': [0.0001], 'C': [1]},
-		#	{'kernel': ['rbf'], 'gamma': [0.001], 'C': [10]},
-		#	{'kernel': ['rbf'], 'gamma': [0.01], 'C': [100]},
-		#	{'kernel': ['rbf'], 'gamma': [0.1], 'C': [1000]}
+			{'clf__kernel': ['rbf', 'linear'], 'clf__gamma': [0.001, 0.01, 0.1, 1], 'clf__C': [1,10,100,1000]}
 		],
 
 		"Multinomial Naive Bayes" : [
@@ -140,6 +133,8 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba)
 		pickle.dump(label_proba, open(name + "_proba.pic", "wb"))
 
 	print ("Done!")
+	print ("Found best result with params:")
+	print grid_search.best_params_
 	print_seperator()
 	print predicted_labels
 	print label_proba
@@ -218,8 +213,8 @@ print_step_info(step_name="Testing")
 
 classifier_list = [
 		(SVC(probability=True), "SVM","c"),
-		(MultinomialNB(alpha=naive_bayes_a),"Multinomial Naive Bayes","y"),
-		(RandomForestClassifier(n_estimators=random_forests_estimators,n_jobs=-1), "Random forest","m"),
+		#(MultinomialNB(alpha=naive_bayes_a),"Multinomial Naive Bayes","y"),
+		#(RandomForestClassifier(n_estimators=random_forests_estimators,n_jobs=-1), "Random forest","m"),
 		#(KNeighborsClassifier(n_neighbors=k_neighbors_num,n_jobs=-1), "k-Nearest Neighbor","g"),
 	]
 
