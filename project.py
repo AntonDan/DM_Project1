@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 import os
+import errno
 import argparse
 
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer, TfidfTransformer
@@ -24,7 +25,14 @@ from collections import Counter
 import sys
 
 # Public parameteres
-test_size = 0.3
+output_directories = {
+	'main' : '',
+	'wourcloud' : 'wordclouds/',
+	'data' : 'data/',
+	'csv' : 'csv/'
+}  
+
+test_size = 0.5
 
 svm_C = 1.0
 naive_bayes_a = 0.05
@@ -67,14 +75,22 @@ def create_wordcloud(dataframe, stop_words):
 
 		wordcloud = WordCloud(width = 600, height = 400, background_color = 'white').generate_from_frequencies(dict(top))
 		image = wordcloud.to_image()
-		image.save(category + ".png")
+		image.save(output_directories['wordcloud'] + category + ".png")
 
 
 # The classification function uses the pipeline in order to ease the procedure
-# 10-fold cross validation is achieved through the GridSearchCV parameteres  
-def classify(classifier, name, grid_params, load_grids, load_labels, load_proba):
+# Mutlinomial Naive Bayes does not support SVD preprocessing due to its nature 
+# because of that we remove it from the pipeline when using MNB classification
+# 10-fold cross validation is achieved through the GridSearchCV parameteres
+# Random search available for searching parameters using scipy methods
+# Search is run in pararel to reduce execution time
+# Probability data are calculated in case they are needed for graph creation
+# Data can be loaded from files when rerunning the program, this helps save time
+# when making changes in later stages, since data doesn't have to be recalculated
+def classify(classifier, name, grid_params, load_grids, load_labels, load_proba, random_search):
 	print("< Beginning " + name + " classification >")
 
+	# Initialization
 	count_vectorizer = CountVectorizer()
 	transformer = TfidfTransformer()
 	svd = TruncatedSVD(n_components=svd_n_components, random_state=42)
@@ -93,47 +109,52 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba)
 			('clf', classifier)
 		])
 
+	# Search creation and fitting
 	print_seperator()
 	grid_search = None
-	if (load_grids and os.path.exists(name + ".pic")):
-		print ("Loading grid data from file")
-		grid_search = pickle.load(open(name + ".pic", "rb")) 
+	if (load_grids and os.path.exists(output_directories['data'] + name + ".pic")):
+		print ("Loading grid data from file " + output_directories['data'] + name + ".pic") 
+		grid_search = pickle.load(open(output_directories['data'] + name + ".pic", "rb")) 
 	else:
 		if (load_grids):
-			print ("Error: no " + name + " file")
+			print ("Error: no " + name + " file <" + output_directories['data'] + name + ".pic>")
 		print ("Creating new grid for " + name)
 		print ("Running grid search with the following parameters: ")
 		print (grid_params)
-		#grid_search = RandomizedSearchCV(pipeline, param_distributions=grid_params, cv=k_fold, n_jobs=8, verbose=1)
-		grid_search = GridSearchCV(pipeline, grid_params, cv=k_fold, n_jobs=8, verbose=1)
+		if (random_search):
+			grid_search = RandomizedSearchCV(pipeline, param_distributions=grid_params, cv=k_fold, n_jobs=8, verbose=1)
+		else:
+			grid_search = GridSearchCV(pipeline, grid_params, cv=k_fold, n_jobs=-1, verbose=1)
 		grid_search.fit(train_data, train_labels)
-		pickle.dump(grid_search, open(name + ".pic", "wb"))
+		pickle.dump(grid_search, open(output_directories['data'] + name + ".pic", "wb"))
 
 
+	# Label prediction 
 	print_seperator()
 	predicted_labels = None
-	if (load_labels and os.path.exists(name + "_labels.pic")):
-		print ("Loading prediction data from file")
-		predicted_labels = pickle.load(open(name + "_labels.pic", "rb"))
+	if (load_labels and os.path.exists(output_directories['data'] + name + "_labels.pic")):
+		print ("Loading prediction data from file " + output_directories['data'] + name + "_labels.pic")
+		predicted_labels = pickle.load(open(output_directories['data'] + name + "_labels.pic", "rb"))
 	else:
 		if (load_labels):
-			print ("Error: no " + name + "_labels file")
+			print ("Error: no " + name + "_labels file <" + output_directories['data'] + name + "_labels.pic>")
 		print ("Creating new label list for " + name + " labels")
 		predicted_labels = grid_search.predict(test_data)
-		pickle.dump(predicted_labels, open(name + "_labels.pic", "wb"))
+		pickle.dump(predicted_labels, open(output_directories['data'] + name + "_labels.pic", "wb"))
 
 
+	# Proba calculation
 	print_seperator()
 	label_proba = None
-	if (load_proba and os.path.exists(name + "_proba.pic")):
-		print ("Loading prediction data from file")
-		label_proba = pickle.load(open(name + "_proba.pic", "rb"))
+	if (load_proba and os.path.exists(output_directories['data'] + name + "_proba.pic")):
+		print ("Loading prediction data from file " + output_directories['data'] + name + "_proba.pic")
+		label_proba = pickle.load(open(output_directories['data'] + name + "_proba.pic", "rb"))
 	else:
 		if (load_proba):
-			print ("Error: no " + name + "_proba file")
+			print ("Error: no " + name + "_proba file <" + output_directories['data'] + name + "_proba.pic>")
 		print ("Creating new label probability list for " + name + " labels")
 		label_proba = grid_search.best_estimator_.predict_proba(test_data)
-		pickle.dump(label_proba, open(name + "_proba.pic", "wb"))
+		pickle.dump(label_proba, open(output_directories['data'] + name + "_proba.pic", "wb"))
 
 	print ("Done!")
 	print ("Found best result with params:")
@@ -154,19 +175,24 @@ def print_step_info(step_name, info=None):
 		print (info)
 	print ('')
 
+# Simple seperator
 def print_seperator():
 	print('-'*60)
 
 
 # MAIN
+# Argument definition
 parser = argparse.ArgumentParser()
 parser.add_argument("--train-file", help="The path to the training data file",  action="store", required=True)
 parser.add_argument("--test-file", help="The path to the test data file", action="store", default=None)
+parser.add_argument("--output-dir", help="Output directory. ", default="./output/")
 parser.add_argument("--wordcloud", help="Load label probability data previously saved in .pic files", action="store_true")
 parser.add_argument("--load-grids", help="Load grid data previously saved in .pic files", action="store_true")
 parser.add_argument("--load-labels", help="Load label data previously saved in .pic files", action="store_true")
 parser.add_argument("--load-probs", help="Load label probability data previously saved in .pic files", action="store_true")
+parser.add_argument("--random-search", help="Load label probability data previously saved in .pic files", action="store_true")
 
+# Argument parsing and validation
 args = parser.parse_args()
 
 print ("Reading training set " + args.train_file)
@@ -175,8 +201,21 @@ print ("Reading test set " + args.train_file)
 test_df = None
 if (args.test_file != None):
 	test_df = pd.read_csv(args.test_file, sep="\t")
+if (args.output_dir[-1] != '/'):
+	args.output_dir += '/'
+for key, value in output_directories.items():
+	dirpath = args.output_dir  + value 
+	if not os.path.exists(os.path.dirname(dirpath)):
+		try:
+			print ("Directory " + dirpath + " doesn't exist. Creating new one")
+			os.makedirs(os.path.dirname(dirpath))
+		except OSError as exc: # Guard against race condition
+			if exc.errno != errno.EEXIST:
+				raise
+	output_directories[key] = args.output_dir + value # update output directories
 
 # Creating label list
+print ("Creating label list")
 le = preprocessing.LabelEncoder()
 le.fit(df['Category'])
 labels = le.transform(df['Category'])
@@ -185,8 +224,8 @@ labels = le.transform(df['Category'])
 f = lambda x: x['Title'] + ' ' + x['Content']
 
 train_df = None
-train_data   = None
-test_data    = None
+train_data = None
+test_data  = None
 train_labels = None
 test_labels  = None
 
@@ -212,7 +251,8 @@ if (args.wordcloud):
 	stop_words = ENGLISH_STOP_WORDS.union(additional_stop_words).union(set(STOPWORDS))
 	create_wordcloud(dataframe=df, stop_words=stop_words)
 
-print_step_info(step_name="Testing")
+# Classification
+print_step_info(step_name="Classification")
 
 classifier_list = [
 		(SVC(probability=True), "SVM","c"),
@@ -223,16 +263,17 @@ classifier_list = [
 
 for clf, name, color in classifier_list:
 	for grid_params in tuned_parameters[name]:
-		predicted_labels = classify(clf, name, grid_params, args.load_grids, args.load_labels, args.load_probs)
+		predicted_labels = classify(clf, name, grid_params, args.load_grids, args.load_labels, args.load_probs, args.random_search)
 		predicted_categories = le.inverse_transform(predicted_labels)
 		if (test_labels is not None):
-			print (classification_report(predicted_labels, test_labels))		
+			print (classification_report(predicted_labels, test_labels))
+		print ("Outputting resulting dataframe in " + output_directories['csv'] + name + "_output.csv")	
 		dic = {
 			"Id" : test_df['Id'],
 			"Category" : predicted_categories
 		}
 		out_df = pd.DataFrame(dic, columns=['Id', 'Category'])
-		out_df.to_csv(name + "_output.csv", sep=',', index=False)
+		out_df.to_csv(output_directories['csv'] + name + "_output.csv", sep=',', index=False)
 
 #print feature_matrix.
 #print classification_report(test_labels, predicted_labels, target_names=list(le.classes_))
