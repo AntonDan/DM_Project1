@@ -2,10 +2,13 @@ import pandas as pd
 import numpy as np 
 import matplotlib.pyplot as plt
 import pickle
+import sys
 import os
 import errno
 import argparse
+import nltk
 
+from nltk.stem.snowball import SnowballStemmer
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer, TfidfTransformer
 from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
 from sklearn.svm import SVC
@@ -14,7 +17,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.decomposition import TruncatedSVD
 from sklearn.pipeline import Pipeline
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score, roc_curve, auc
 from sklearn.utils import shuffle
 from sklearn import svm, datasets, preprocessing 
 
@@ -22,36 +25,43 @@ from wordcloud import WordCloud, STOPWORDS
 from nltk import word_tokenize
 from collections import Counter
 
-import sys
+nltk.download("stopwords") 
+stemmer = SnowballStemmer("english", ignore_stopwords=True)
+
+class StemmedCountVectorizer(CountVectorizer):
+    def build_analyzer(self):
+        analyzer = super(StemmedCountVectorizer, self).build_analyzer()
+        return lambda doc: ([stemmer.stem(w) for w in analyzer(doc)])
 
 # Public parameteres
 output_directories = {
 	'main' : '',
 	'wourcloud' : 'wordclouds/',
 	'data' : 'data/',
-	'csv' : 'csv/'
+	'csv' : 'csv/',
+	'plot' : 'plots/'
 }  
 
-test_size = 0.5
+test_size = 0.25
 
-svm_C = 1.0
 naive_bayes_a = 0.05
 random_forests_estimators = 10
-svd_n_components = 100
 k_fold = 10
 
 tuned_parameters = {
-		"SVM" :[ 
-			#{'clf__kernel': ['rbf'], 'clf__gamma': stats.expon(scale=.1), 'clf__C': stats.expon(scale=10)}
-			 {'clf__gamma': [0.6909752275782135], 'clf__C': [2.627930391414668], 'clf__kernel': ['rbf']}
+		"SVM" : 
+		[	#{'clf__kernel': ['rbf'], 'clf__gamma': stats.expon(scale=.1), 'clf__C': stats.expon(scale=10)}
+			 {'tfidf__use_idf': [True], 'svd__n_components' : [100], 'clf__gamma': [0.6909752275782135], 'clf__C': [2.627930391414668], 'clf__class_weight': ['balanced'], 'clf__kernel': ['rbf']}
 		],
 
-		"Multinomial Naive Bayes" : [
+		"Multinomial Naive Bayes" : 
+		[
 			{}
 		],
 
-		"Random forest" : [
-			{}
+		"Random forest" : 
+		[	
+			{'svd__n_components' : [100], 'clf__class_weight': ['balanced']}
 		]
 	}
 
@@ -90,11 +100,11 @@ def create_wordcloud(dataframe, stop_words):
 def classify(classifier, name, grid_params, load_grids, load_labels, load_proba, random_search):
 	print("< Beginning " + name + " classification >")
 
-	# Initialization
-	count_vectorizer = CountVectorizer()
+	#count_vectorizer = StemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
+	count_vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
 	transformer = TfidfTransformer()
-	svd = TruncatedSVD(n_components=svd_n_components, random_state=42)
 
+	# Initialization
 	if name == "Multinomial Naive Bayes": 
 		pipeline = Pipeline([
 			('vect', count_vectorizer),
@@ -102,6 +112,7 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 			('clf', classifier)
 		])
 	else:
+		svd = TruncatedSVD(random_state=42)
 		pipeline = Pipeline([
 			('vect', count_vectorizer),
 			('tfidf', transformer),
@@ -160,11 +171,24 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 	print ("Found best result with params:")
 	print grid_search.best_params_
 	print_seperator()
-	print predicted_labels
-	print label_proba
+	#print predicted_labels
+	#print label_proba
 	print ("\n")
-	return predicted_labels
+	return predicted_labels, label_proba
 
+# roc_curve_estimator, converts the set to binary an then estimates the auc
+# For the ROC AUC plot we make use of the following examles from sklearn
+# http://scikit-learn.org/stable/auto_examples/model_selection/plot_roc.html#example-model-selection-plot-roc-py
+# http://scikit-learn.org/stable/auto_examples/model_selection/plot_roc_crossval.html
+def roc_curve_estimator(test_labels, label_proba, clfname, color):
+	y_binary = preprocessing.label_binarize(test_labels, le.transform(le.classes_))
+	fpr, tpr, thresholds = roc_curve(y_binary[:,1],label_proba[:,1])
+	roc_auc = auc(fpr, tpr)
+	print ("Area under the ROC curve: %f" % roc_auc)
+	print ("Thresholds: %f", thresholds)
+	plt.plot(fpr, tpr, 'k', label="%s , (area = %0.3f)" % (clfname,roc_auc), lw=2, c="%s" % color)
+
+	return roc_auc
 
 # Simple print function that displays a seperator and the step name 
 def print_step_info(step_name, info=None):
@@ -257,24 +281,40 @@ print_step_info(step_name="Classification")
 classifier_list = [
 		(SVC(probability=True), "SVM","c"),
 		(MultinomialNB(alpha=naive_bayes_a),"Multinomial Naive Bayes","y"),
-		(RandomForestClassifier(n_estimators=random_forests_estimators,n_jobs=-1), "Random forest","m"),
+		(RandomForestClassifier(n_estimators=random_forests_estimators), "Random forest","m"),
 		#(KNeighborsClassifier(n_neighbors=k_neighbors_num,n_jobs=-1), "k-Nearest Neighbor","g"),
 	]
 
+validation_results = {"Accuracy": {}, "ROC": {}, "CompGraph": {}}
 for clf, name, color in classifier_list:
-	for grid_params in tuned_parameters[name]:
-		predicted_labels = classify(clf, name, grid_params, args.load_grids, args.load_labels, args.load_probs, args.random_search)
-		predicted_categories = le.inverse_transform(predicted_labels)
-		if (test_labels is not None):
-			print (classification_report(predicted_labels, test_labels))
-		print ("Outputting resulting dataframe in " + output_directories['csv'] + name + "_output.csv")	
-		dic = {
-			"Id" : test_df['Id'],
-			"Category" : predicted_categories
-		}
-		out_df = pd.DataFrame(dic, columns=['Id', 'Category'])
-		out_df.to_csv(output_directories['csv'] + name + "_output.csv", sep=',', index=False)
+	predicted_labels, label_proba = classify(clf, name, tuned_parameters[name], args.load_grids, args.load_labels, args.load_probs, args.random_search)
+	predicted_categories = le.inverse_transform(predicted_labels)
+	if (test_labels is not None):
+		print_step_info(step_name="Classification Report")
+		print (classification_report(predicted_labels, test_labels))
+		accuracy = accuracy_score(test_labels, predicted_labels)
+		print ("Accuracy: " + str(accuracy))
+		validation_results["Accuracy"][name] = accuracy 
+		roc_auc = roc_curve_estimator(test_labels, label_proba, name, color)
+		validation_results["ROC"][name] = roc_auc
+		
+	print ("Outputting resulting dataframe in " + output_directories['csv'] + name + "_output.csv")	
+	dic = {
+		"Id" : test_df['Id'],
+		"Category" : predicted_categories
+	}
+	out_df = pd.DataFrame(dic, columns=['Id', 'Category'])
+	out_df.to_csv(output_directories['csv'] + name + "_output.csv", sep=',', index=False)
 
-#print feature_matrix.
-#print classification_report(test_labels, predicted_labels, target_names=list(le.classes_))
-#print accuracy_score(test_labels, predicted_labels)
+
+if ([test_labels is not None]):
+	#create the ROC plot with the data generate from above
+	plt.plot([0, 1], [0, 1], '--', color=(0.6, 0.6, 0.6), label='Luck')
+
+	plt.xlim([-0.05, 1.05])
+	plt.ylim([-0.05, 1.05])
+	plt.xlabel('False Positive Rate')
+	plt.ylabel('True Positive Rate')
+	plt.title('ROC')
+	plt.legend(loc="lower right")
+	plt.savefig(output_directories['plot']  + "roc_10fold.png")
