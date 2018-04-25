@@ -5,33 +5,42 @@ import pickle
 import sys
 import os
 import errno
+import re
 import argparse
 import nltk
 
 from nltk.stem.snowball import SnowballStemmer
+from nltk.stem.lancaster import LancasterStemmer
+from nltk.stem import WordNetLemmatizer 
+
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer, TfidfTransformer
 from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
+from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from scipy import stats
+from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import MultinomialNB, GaussianNB
 from sklearn.decomposition import TruncatedSVD
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import classification_report, accuracy_score, roc_curve, auc
 from sklearn.utils import shuffle
 from sklearn import svm, datasets, preprocessing 
+from scipy import stats
 
 from wordcloud import WordCloud, STOPWORDS
 from nltk import word_tokenize
 from collections import Counter
 
 nltk.download("stopwords") 
-stemmer = SnowballStemmer("english", ignore_stopwords=True)
+nltk.download("wordnet")
+#stemmer = SnowballStemmer("english", ignore_stopwords=True)
+stemmer = LancasterStemmer()
+lemmatizer = WordNetLemmatizer()
 
 class StemmedCountVectorizer(CountVectorizer):
-    def build_analyzer(self):
-        analyzer = super(StemmedCountVectorizer, self).build_analyzer()
-        return lambda doc: ([stemmer.stem(w) for w in analyzer(doc)])
+	def build_analyzer(self):
+		analyzer = super(StemmedCountVectorizer, self).build_analyzer()
+		return lambda doc: ([stemmer.stem(lemmatizer.lemmatize(w)) for w in analyzer(doc)])
 
 # Public parameteres
 output_directories = {
@@ -42,7 +51,7 @@ output_directories = {
 	'plot' : 'plots/'
 }  
 
-test_size = 0.25
+test_size = 0.6
 
 naive_bayes_a = 0.05
 random_forests_estimators = 10
@@ -54,6 +63,18 @@ tuned_parameters = {
 			 {'tfidf__use_idf': [True], 'svd__n_components' : [100], 'clf__gamma': [0.6909752275782135], 'clf__C': [2.627930391414668], 'clf__class_weight': ['balanced'], 'clf__kernel': ['rbf']}
 		],
 
+		"Gaussian" : 
+		[
+			{
+				'svd__n_components' : [100],
+			#	"clf__alpha": [1e1],
+				"clf__optimizer": ["fmin_l_bfgs_b"],
+				"clf__n_restarts_optimizer": [1],
+			#	"clf__normalize_y": [False],
+				"clf__copy_X_train": [True], 
+				"clf__random_state": [0]
+			}
+		],
 		"Multinomial Naive Bayes" : 
 		[
 			{}
@@ -83,7 +104,7 @@ def create_wordcloud(dataframe, stop_words):
 
 		top = freq_distribution.most_common(100)
 
-		wordcloud = WordCloud(width = 600, height = 400, background_color = 'white').generate_from_frequencies(dict(top))
+		wordcloud = WordCloud(width = 600, height = 400, background_color = "white").generate_from_frequencies(dict(top))
 		image = wordcloud.to_image()
 		image.save(output_directories['wordcloud'] + category + ".png")
 
@@ -101,6 +122,7 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 	print("< Beginning " + name + " classification >")
 
 	#count_vectorizer = StemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
+	#count_vectorizer = CountVectorizer(tokenizer=LemmaTokenizer(), stop_words=ENGLISH_STOP_WORDS)
 	count_vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
 	transformer = TfidfTransformer()
 
@@ -279,10 +301,11 @@ if (args.wordcloud):
 print_step_info(step_name="Classification")
 
 classifier_list = [
-		(SVC(probability=True), "SVM","c"),
-		(MultinomialNB(alpha=naive_bayes_a),"Multinomial Naive Bayes","y"),
-		(RandomForestClassifier(n_estimators=random_forests_estimators), "Random forest","m"),
-		#(KNeighborsClassifier(n_neighbors=k_neighbors_num,n_jobs=-1), "k-Nearest Neighbor","g"),
+		#(SVC(probability=True), "SVM","c"),
+		(GaussianProcessClassifier(), "Gaussian","b"),
+		#(MultinomialNB(alpha=naive_bayes_a),"Multinomial Naive Bayes","y"),
+		#(RandomForestClassifier(n_estimators=random_forests_estimators), "Random forest","m"),
+		#(KNeighborsClassifier(n_neighbors=k_neighbors_num,n_jobs=-1), "k-Nearest Neighbor","g")
 	]
 
 validation_results = {"Accuracy": {}, "ROC": {}, "CompGraph": {}}
