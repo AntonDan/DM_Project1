@@ -13,12 +13,13 @@ from nltk.stem.snowball import SnowballStemmer
 from nltk.stem.lancaster import LancasterStemmer
 from nltk.stem import WordNetLemmatizer 
 
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer, TfidfTransformer
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer, HashingVectorizer, TfidfTransformer
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.gaussian_process import GaussianProcessClassifier
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.naive_bayes import MultinomialNB, GaussianNB
 from sklearn.decomposition import TruncatedSVD
 from sklearn.pipeline import Pipeline
@@ -26,10 +27,13 @@ from sklearn.metrics import classification_report, accuracy_score, roc_curve, au
 from sklearn.utils import shuffle
 from sklearn import svm, datasets, preprocessing 
 from scipy import stats
+from sklearn import neighbors
 
 from wordcloud import WordCloud, STOPWORDS
 from nltk import word_tokenize
 from collections import Counter
+
+from knn import KNeighborsClassifier
 
 nltk.download("stopwords") 
 nltk.download("wordnet")
@@ -42,6 +46,13 @@ class StemmedCountVectorizer(CountVectorizer):
 		analyzer = super(StemmedCountVectorizer, self).build_analyzer()
 		return lambda doc: ([stemmer.stem(lemmatizer.lemmatize(w)) for w in analyzer(doc)])
 
+class Range(object):
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+    def __eq__(self, other):
+        return self.start <= other <= self.end
+
 # Public parameteres
 output_directories = {
 	'main' : '',
@@ -51,23 +62,19 @@ output_directories = {
 	'plot' : 'plots/'
 }  
 
-test_size = 0.5
-
-naive_bayes_a = 0.05
 random_forests_estimators = 10
-k_fold = 5
+k_fold = 10
 
 tuned_parameters = {
-		"SVM" : 
-		[	#{'clf__kernel': ['rbf'], 'clf__gamma': stats.expon(scale=.1), 'clf__C': stats.expon(scale=10)}
-			 {'tfidf__use_idf': [True], 'svd__n_components' : [100], 'clf__gamma': [0.6909752275782135], 'clf__C': [2.627930391414668], 'clf__class_weight': ['balanced'], 'clf__kernel': ['rbf']}
+		"SVC" : 
+		[	#{'tfidf__use_idf': [True], 'svd__n_components' : [100], 'clf__kernel': ['rbf'], 'clf__gamma': stats.expon(scale=.1), 'clf__C': stats.expon(scale=10), 'clf__class_weight': ['balanced']}
+			 {'tfidf__use_idf': [True], 'svd__n_components' : [100], 'clf__gamma': [0.6909752275782135], 'clf__C': [2.627930391414668], 'clf__class_weight': ['balanced'], 'clf__kernel': ['rbf'], 'clf__probability': [True]}
 		],
 
-		"Gaussian" : 
+		"GPC" : 
 		[
 			{
 				'svd__n_components' : [100],
-			#	"clf__alpha": [1e1],
 				"clf__optimizer": ["fmin_l_bfgs_b"],
 				"clf__n_restarts_optimizer": [1],
 			#	"clf__normalize_y": [False],
@@ -75,14 +82,43 @@ tuned_parameters = {
 				"clf__random_state": [0]
 			}
 		],
-		"Multinomial Naive Bayes" : 
+		"MNB" : 
 		[
-			{}
+			{
+				"clf__alpha" : [0.05]
+			}
+		],
+		"GNB" : 
+		[
+			{
+				"clf__alpha" : [0.05]
+			}
 		],
 
-		"Random forest" : 
+		"LR" : 
+		[
+			{
+			}
+		],
+
+		"RF" : 
 		[	
-			{'svd__n_components' : [100], 'clf__class_weight': ['balanced']}
+			{'svd__n_components' : [100], 'clf__n_estimators' : [100], 'clf__class_weight': ['balanced']}
+		],
+
+		"KNN" : 
+		[	
+			{'svd__n_components' : [100]}
+		],
+
+		"KNN2" : 
+		[	
+			{'svd__n_components' : [100]}
+		],
+
+		"VE" :
+		[
+			{}
 		]
 	}
 
@@ -121,22 +157,23 @@ def create_wordcloud(dataframe, stop_words):
 def classify(classifier, name, grid_params, load_grids, load_labels, load_proba, random_search):
 	print("< Beginning " + name + " classification >")
 
-	#count_vectorizer = StemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
-	#count_vectorizer = CountVectorizer(tokenizer=LemmaTokenizer(), stop_words=ENGLISH_STOP_WORDS)
-	count_vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
+	#vectorizer = StemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
+	#vectorizer = CountVectorizer(tokenizer=LemmaTokenizer(), stop_words=ENGLISH_STOP_WORDS)
+	#vectorizer = HashingVectorizer(stop_words=ENGLISH_STOP_WORDS)
+	vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
 	transformer = TfidfTransformer()
 
 	# Initialization
-	if name == "Multinomial Naive Bayes": 
+	if name == "Multinomial Naive Bayes" or name == "Voting Estimator": 
 		pipeline = Pipeline([
-			('vect', count_vectorizer),
+			('vect', vectorizer),
 			('tfidf', transformer),
 			('clf', classifier)
 		])
 	else:
 		svd = TruncatedSVD(random_state=42)
 		pipeline = Pipeline([
-			('vect', count_vectorizer),
+			('vect', vectorizer),
 			('tfidf', transformer),
 			('svd',svd),
 			('clf', classifier)
@@ -179,15 +216,16 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 	# Proba calculation
 	print_seperator()
 	label_proba = None
-	if (load_proba and os.path.exists(output_directories['data'] + name + "_proba.pic")):
-		print ("Loading prediction data from file " + output_directories['data'] + name + "_proba.pic")
-		label_proba = pickle.load(open(output_directories['data'] + name + "_proba.pic", "rb"))
-	else:
-		if (load_proba):
-			print ("Error: no " + name + "_proba file <" + output_directories['data'] + name + "_proba.pic>")
-		print ("Creating new label probability list for " + name + " labels")
-		label_proba = grid_search.best_estimator_.predict_proba(test_data)
-		pickle.dump(label_proba, open(output_directories['data'] + name + "_proba.pic", "wb"))
+	if (name != "k-Nearest Neighbors Custom" and name != "Voting Estimator"):
+		if (load_proba and os.path.exists(output_directories['data'] + name + "_proba.pic")):
+			print ("Loading prediction data from file " + output_directories['data'] + name + "_proba.pic")
+			label_proba = pickle.load(open(output_directories['data'] + name + "_proba.pic", "rb"))
+		else:
+			if (load_proba):
+				print ("Error: no " + name + "_proba file <" + output_directories['data'] + name + "_proba.pic>")
+			print ("Creating new label probability list for " + name + " labels")
+			label_proba = grid_search.best_estimator_.predict_proba(test_data)
+			pickle.dump(label_proba, open(output_directories['data'] + name + "_proba.pic", "wb"))
 
 	print ("Done!")
 	print ("Found best result with params:")
@@ -207,7 +245,7 @@ def roc_curve_estimator(test_labels, label_proba, clfname, color):
 	fpr, tpr, thresholds = roc_curve(y_binary[:,1],label_proba[:,1])
 	roc_auc = auc(fpr, tpr)
 	print ("Area under the ROC curve: %f" % roc_auc)
-	print ("Thresholds: %f", thresholds)
+	#print ("Thresholds: %f", thresholds)
 	plt.plot(fpr, tpr, 'k', label="%s , (area = %0.3f)" % (clfname,roc_auc), lw=2, c="%s" % color)
 
 	return roc_auc
@@ -231,13 +269,15 @@ def print_seperator():
 parser = argparse.ArgumentParser()
 parser.add_argument("--train-file", help="The path to the training data file",  action="store", required=True)
 parser.add_argument("--test-file", help="The path to the test data file", action="store", default=None)
+parser.add_argument("--classifier", help="The classifier that will be used", action="store", default=None, choices=["SVC", "GPC", "MNB", "RF", "KNN", "GNB", "KNNC", "LR"])
 parser.add_argument("--output-dir", help="Output directory. ", default="./output/")
 parser.add_argument("--wordcloud", help="Load label probability data previously saved in .pic files", action="store_true")
 parser.add_argument("--load-grids", help="Load grid data previously saved in .pic files", action="store_true")
 parser.add_argument("--load-labels", help="Load label data previously saved in .pic files", action="store_true")
 parser.add_argument("--load-probs", help="Load label probability data previously saved in .pic files", action="store_true")
 parser.add_argument("--random-search", help="Load label probability data previously saved in .pic files", action="store_true")
-parser.add_argument("--subsample-train", help="Create a balanced subsample of the train data", action="store_true")
+parser.add_argument("--voting", help="Run a voting estimator with all available classifiers", action="store_true")
+parser.add_argument("--subsample-train", help="Create a balanced subsample of the train data", action="store", type=float, default=None, choices=[Range(0.01, 1.0)])
 
 # Argument parsing and validation
 args = parser.parse_args()
@@ -277,8 +317,9 @@ train_labels = None
 test_labels  = None
 
 if (test_df is not None):
-	if (args.subsample_train):
-		train_df, _, train_labels, _ = train_test_split(df, labels, test_size=test_size, random_state=0)
+	if (args.subsample_train is not None):
+		print ("Subsampling %f%% of the train data",  args.subsample_train * 100)
+		train_df, _, train_labels, _ = train_test_split(df, labels, test_size=args.subsample_train, random_state=0)
 	else:
 		train_df = df
 		train_labels = labels
@@ -286,7 +327,10 @@ if (test_df is not None):
 		le.fit(test_df['Category'])
 		test_labels = le.transform(test_df['Category'])
 else:
-	train_df, test_df, train_labels, test_labels = train_test_split(df, labels, test_size=test_size, random_state=0)
+	if (args.subsample_train is not None):
+		train_df, test_df, train_labels, test_labels = train_test_split(df, labels, test_size=1 - args.subsample_train, random_state=0)
+	else:
+		train_df, test_df, train_labels, test_labels = train_test_split(df, labels, test_size=0.3, random_state=0)
 
 
 train_data = train_df[['Title','Content']]
@@ -305,28 +349,45 @@ if (args.wordcloud):
 # Classification
 print_step_info(step_name="Classification")
 
-classifier_list = [
-		#(SVC(probability=True), "SVM","c"),
-		(GaussianProcessClassifier(), "Gaussian","b"),
-		#(MultinomialNB(alpha=naive_bayes_a),"Multinomial Naive Bayes","y"),
-		#(RandomForestClassifier(n_estimators=random_forests_estimators), "Random forest","m"),
-		#(KNeighborsClassifier(n_neighbors=k_neighbors_num,n_jobs=-1), "k-Nearest Neighbor","g")
-	]
+# Initialization
+classifier_list = {
+	#	"GPC" : (GaussianProcessClassifier(), "Gaussian Process Classifier","b"), # Don't run this unless you have a LOT of ram available
+    	"GNB" : (GaussianNB(), "Gaussian Naive Bayes","r"),
+	#	"KNNC" : (KNeighborsClassifier(100, 0), "k-Nearest Neighbor Custom","g"),
+		"KNN" : (neighbors.KNeighborsClassifier(n_neighbors=100), "k-Nearest Neighbor","g"),
+		"MNB" : (MultinomialNB(),"Multinomial Naive Bayes","y"),
+		"LR"  : (LogisticRegression(random_state=42), "Logistic Regression","k"),
+		"RF"  : (RandomForestClassifier(), "Random forest","m"),
+		"SVC" : (SVC(), "Support Vector Classifier","c")
+}
 
-validation_results = {"Accuracy": {}, "ROC": {}, "CompGraph": {}}
-for clf, name, color in classifier_list:
-	predicted_labels, label_proba = classify(clf, name, tuned_parameters[name], args.load_grids, args.load_labels, args.load_probs, args.random_search)
+validation_results = {"Accuracy": {}, "ROC": {}, "CompGraph": {}, "Predictions": {}}
+
+estimators = []
+
+# Begining classifiaction
+for clf_id, clf_info in classifier_list.items():
+	if (args.classifier is not None and clf_id != args.classifier):
+		continue
+	clf, name, color = clf_info
+	estimators += [(name, clf)]
+	predicted_labels, label_proba = classify(clf, name, tuned_parameters[clf_id], args.load_grids, args.load_labels, args.load_probs, args.random_search)
 	predicted_categories = le.inverse_transform(predicted_labels)
+
+	# Outputting results
 	if (test_labels is not None):
 		print_step_info(step_name="Classification Report")
 		print (classification_report(predicted_labels, test_labels))
 		accuracy = accuracy_score(test_labels, predicted_labels)
 		print ("Accuracy: " + str(accuracy))
 		validation_results["Accuracy"][name] = accuracy 
-		roc_auc = roc_curve_estimator(test_labels, label_proba, name, color)
-		validation_results["ROC"][name] = roc_auc
+		if (label_proba is not None):
+			roc_auc = roc_curve_estimator(test_labels, label_proba, name, color)
+			validation_results["ROC"][name] = roc_auc
 		
+	# Outputting resulting dataframe to csv
 	print ("Outputting resulting dataframe in " + output_directories['csv'] + name + "_output.csv")	
+	validation_results["Predictions"][name] = predicted_labels
 	dic = {
 		"Id" : test_df['Id'],
 		"Category" : predicted_categories
@@ -334,11 +395,31 @@ for clf, name, color in classifier_list:
 	out_df = pd.DataFrame(dic, columns=['Id', 'Category'])
 	out_df.to_csv(output_directories['csv'] + name + "_output.csv", sep=',', index=False)
 
+# Run the voting classifier if asked
+if (args.voting):
+	clf = VotingClassifier(estimators=estimators, voting='hard')
+	predicted_labels, _ = classify(clf, "Voting Estimator", tuned_parameters["VE"], args.load_grids, args.load_labels, args.load_probs, args.random_search)
+	predicted_categories = le.inverse_transform(predicted_labels)
+	if (test_labels is not None):
+		print_step_info(step_name="Classification Report")
+		print (classification_report(predicted_labels, test_labels))
+		accuracy = accuracy_score(test_labels, predicted_labels)
+		print ("Accuracy: " + str(accuracy))
+		validation_results["Accuracy"][name] = accuracy 
+	
+	# Outputting resulting dataframe to csv
+	print ("Outputting resulting dataframe in " + output_directories['csv'] + name + "_output.csv")	
+	validation_results["Predictions"][name] = predicted_labels
+	dic = {
+		"Id" : test_df['Id'],
+		"Category" : predicted_categories
+	}
+	out_df = pd.DataFrame(dic, columns=['Id', 'Category'])
+	out_df.to_csv(output_directories['csv'] + name + "_output.csv", sep=',', index=False)
 
 if ([test_labels is not None]):
 	#create the ROC plot with the data generate from above
 	plt.plot([0, 1], [0, 1], '--', color=(0.6, 0.6, 0.6), label='Luck')
-
 	plt.xlim([-0.05, 1.05])
 	plt.ylim([-0.05, 1.05])
 	plt.xlabel('False Positive Rate')
