@@ -51,11 +51,11 @@ output_directories = {
 	'plot' : 'plots/'
 }  
 
-test_size = 0.6
+test_size = 0.5
 
 naive_bayes_a = 0.05
 random_forests_estimators = 10
-k_fold = 10
+k_fold = 5
 
 tuned_parameters = {
 		"SVM" : 
@@ -237,6 +237,7 @@ parser.add_argument("--load-grids", help="Load grid data previously saved in .pi
 parser.add_argument("--load-labels", help="Load label data previously saved in .pic files", action="store_true")
 parser.add_argument("--load-probs", help="Load label probability data previously saved in .pic files", action="store_true")
 parser.add_argument("--random-search", help="Load label probability data previously saved in .pic files", action="store_true")
+parser.add_argument("--subsample-train", help="Create a balanced subsample of the train data", action="store_true")
 
 # Argument parsing and validation
 args = parser.parse_args()
@@ -276,13 +277,17 @@ train_labels = None
 test_labels  = None
 
 if (test_df is not None):
-	train_df = df
-	train_labels = labels
+	if (args.subsample_train):
+		train_df, _, train_labels, _ = train_test_split(df, labels, test_size=test_size, random_state=0)
+	else:
+		train_df = df
+		train_labels = labels
 	if ('Category' in test_df.columns):
 		le.fit(test_df['Category'])
 		test_labels = le.transform(test_df['Category'])
 else:
 	train_df, test_df, train_labels, test_labels = train_test_split(df, labels, test_size=test_size, random_state=0)
+
 
 train_data = train_df[['Title','Content']]
 test_data = test_df[['Title','Content']]
