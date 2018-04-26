@@ -111,7 +111,7 @@ tuned_parameters = {
 			{'svd__n_components' : [100]}
 		],
 
-		"KNN2" : 
+		"KNNC" : 
 		[	
 			{'svd__n_components' : [100]}
 		],
@@ -216,7 +216,7 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 	# Proba calculation
 	print_seperator()
 	label_proba = None
-	if (name != "k-Nearest Neighbors Custom" and name != "Voting Estimator"):
+	if (name != "k-Nearest Neighbor Custom" and name != "Voting Estimator"):
 		if (load_proba and os.path.exists(output_directories['data'] + name + "_proba.pic")):
 			print ("Loading prediction data from file " + output_directories['data'] + name + "_proba.pic")
 			label_proba = pickle.load(open(output_directories['data'] + name + "_proba.pic", "rb"))
@@ -229,7 +229,7 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 
 	print ("Done!")
 	print ("Found best result with params:")
-	print grid_search.best_params_
+	print (grid_search.best_params_)
 	print_seperator()
 	#print predicted_labels
 	#print label_proba
@@ -353,7 +353,7 @@ print_step_info(step_name="Classification")
 classifier_list = {
 	#	"GPC" : (GaussianProcessClassifier(), "Gaussian Process Classifier","b"), # Don't run this unless you have a LOT of ram available
     	"GNB" : (GaussianNB(), "Gaussian Naive Bayes","r"),
-	#	"KNNC" : (KNeighborsClassifier(100, 0), "k-Nearest Neighbor Custom","g"),
+		"KNNC" : (KNeighborsClassifier(100, 0), "k-Nearest Neighbor Custom","g"),
 		"KNN" : (neighbors.KNeighborsClassifier(n_neighbors=100), "k-Nearest Neighbor","g"),
 		"MNB" : (MultinomialNB(),"Multinomial Naive Bayes","y"),
 		"LR"  : (LogisticRegression(random_state=42), "Logistic Regression","k"),
