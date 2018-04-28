@@ -44,6 +44,11 @@ lemmatizer = WordNetLemmatizer()
 class StemmedCountVectorizer(CountVectorizer):
 	def build_analyzer(self):
 		analyzer = super(StemmedCountVectorizer, self).build_analyzer()
+		return lambda doc: ([stemmer.stem(w) for w in analyzer(doc)])
+
+class LemmatizedStemmedCountVectorizer(CountVectorizer):
+	def build_analyzer(self):
+		analyzer = super(LemmatizedStemmedCountVectorizer, self).build_analyzer()
 		return lambda doc: ([stemmer.stem(lemmatizer.lemmatize(w)) for w in analyzer(doc)])
 
 class Range(object):
@@ -85,25 +90,25 @@ tuned_parameters = {
 		"MNB" : 
 		[
 			{
-				"clf__alpha" : [0.05]
+				"clf__alpha" : [0.025]
 			}
 		],
 		"GNB" : 
 		[
 			{
-				"clf__alpha" : [0.05]
 			}
 		],
 
 		"LR" : 
 		[
 			{
+				"clf__tol" : [1e-5]
 			}
 		],
 
 		"RF" : 
 		[	
-			{'svd__n_components' : [100], 'clf__n_estimators' : [100], 'clf__class_weight': ['balanced']}
+			{'svd__n_components' : [100], 'clf__n_estimators' : [10,50,100,200], 'clf__class_weight': ['balanced']}
 		],
 
 		"KNN" : 
@@ -157,10 +162,11 @@ def create_wordcloud(dataframe, stop_words):
 def classify(classifier, name, grid_params, load_grids, load_labels, load_proba, random_search):
 	print("< Beginning " + name + " classification >")
 
+	#vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
 	#vectorizer = StemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
 	#vectorizer = CountVectorizer(tokenizer=LemmaTokenizer(), stop_words=ENGLISH_STOP_WORDS)
+	vectorizer = LemmatizedStemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
 	#vectorizer = HashingVectorizer(stop_words=ENGLISH_STOP_WORDS)
-	vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
 	transformer = TfidfTransformer()
 
 	# Initialization
@@ -352,13 +358,13 @@ print_step_info(step_name="Classification")
 # Initialization
 classifier_list = {
 	#	"GPC" : (GaussianProcessClassifier(), "Gaussian Process Classifier","b"), # Don't run this unless you have a LOT of ram available
-    	"GNB" : (GaussianNB(), "Gaussian Naive Bayes","r"),
-		"KNNC" : (KNeighborsClassifier(100, 0), "k-Nearest Neighbor Custom","g"),
-		"KNN" : (neighbors.KNeighborsClassifier(n_neighbors=100), "k-Nearest Neighbor","g"),
+    #	"GNB" : (GaussianNB(), "Gaussian Naive Bayes","r"),
+		"KNNC" : (KNeighborsClassifier(5, 0), "k-Nearest Neighbor Custom","g"),
+		"KNN" : (neighbors.KNeighborsClassifier(n_neighbors=5), "k-Nearest Neighbor","g"),
 		"MNB" : (MultinomialNB(),"Multinomial Naive Bayes","y"),
-		"LR"  : (LogisticRegression(random_state=42), "Logistic Regression","k"),
-		"RF"  : (RandomForestClassifier(), "Random forest","m"),
-		"SVC" : (SVC(), "Support Vector Classifier","c")
+	#	"LR"  : (LogisticRegression(random_state=42), "Logistic Regression","k"),
+		"RF"  : (RandomForestClassifier(n_estimators=100, class_weight='balanced'), "Random forest","m"),
+		"SVC" : (SVC(gamma=0.7, C=2.6, kernel='rbf', probability=True, class_weight='balanced'), "Support Vector Classifier","c")
 }
 
 validation_results = {"Accuracy": {}, "ROC": {}, "CompGraph": {}, "Predictions": {}}
