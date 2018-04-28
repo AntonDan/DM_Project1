@@ -14,10 +14,11 @@ from nltk.stem.lancaster import LancasterStemmer
 from nltk.stem import WordNetLemmatizer 
 
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer, HashingVectorizer, TfidfTransformer
+from sklearn.feature_selection import SelectFromModel
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
 from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
+from sklearn.svm import SVC, LinearSVC
 from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.naive_bayes import MultinomialNB, GaussianNB
@@ -163,6 +164,7 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 	vectorizer = LemmatizedStemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
 	#vectorizer = HashingVectorizer(stop_words=ENGLISH_STOP_WORDS)
 	transformer = TfidfTransformer()
+	#feature_selection = SelectFromModel(LinearSVC())
 
 	# Initialization
 	if name == "Multinomial Naive Bayes" or name == "Voting Estimator": 
@@ -177,6 +179,7 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 			('vect', vectorizer),
 			('tfidf', transformer),
 			('svd',svd),
+		#	('fs', feature_selection),
 			('clf', classifier)
 		])
 
@@ -354,12 +357,12 @@ print_step_info(step_name="Classification")
 classifier_list = {
 	#	"GPC" : (GaussianProcessClassifier(), "Gaussian Process Classifier","b"), # Don't run this unless you have a LOT of ram available
     #	"GNB" : (GaussianNB(), "Gaussian Naive Bayes","r"),
-		"KNNC" : (KNeighborsClassifier(5, 0), "k-Nearest Neighbor Custom","g", 1.5),
-		"KNN" : (neighbors.KNeighborsClassifier(n_neighbors=5), "k-Nearest Neighbor","g", 1),
-		"MNB" : (MultinomialNB(),"Multinomial Naive Bayes","y", 1),
-		"LR"  : (LogisticRegression(random_state=42), "Logistic Regression","k", 1),
-		"RF"  : (RandomForestClassifier(n_estimators=100, class_weight='balanced'), "Random forest","m", 1),
-		"SVC" : (SVC(gamma=0.7, C=2.6, kernel='rbf', probability=True, class_weight='balanced'), "Support Vector Classifier","c", 1.5)
+		"KNNC": (KNeighborsClassifier(5, 0), "k-Nearest Neighbor Custom","g", 0, "KNN"),
+		"KNN" : (neighbors.KNeighborsClassifier(n_neighbors=5), "k-Nearest Neighbor","g", 1, None),
+		"MNB" : (MultinomialNB(),"Multinomial Naive Bayes","y", 1, "Naive Bayes"),
+		"LR"  : (LogisticRegression(random_state=42), "Logistic Regression","k", 1, None),
+		"RF"  : (RandomForestClassifier(n_estimators=100, class_weight='balanced'), "Random forest","m", 1, "Random Forest"),
+		"SVC" : (SVC(gamma=0.7, C=2.6, kernel='rbf', probability=True, class_weight='balanced'), "Support Vector Classifier","c", 1.5, "SVC")
 }
 
 validation_results = {"Accuracy": {}, "ROC": {}, "CompGraph": {}, "Predictions": {}}
@@ -371,10 +374,12 @@ weights = []
 for clf_id, clf_info in classifier_list.items():
 	if (args.classifier is not None and clf_id != args.classifier):
 		continue
-	clf, name, color, weight = clf_info
-	estimators += [(name, clf)]
-	weights += [weight]
-	if (args.voting):
+	clf, name, color, weight, evaluation_name = clf_info
+	if (args.classifier is None and evaluation_name is None): # Skip classifiers that are only needed for the Voting Classifier
+		continue                  # This should ensure that Validation Results contains only data that will be outputted as long as the user doesn't ask for a specific classifier
+	if (args.voting and weight != 0): # If weight is 0 the classifier will not be included in the voting classification
+		estimators += [(name, clf)]
+		weights += [weight]
 		continue
 	predicted_labels, label_proba = classify(clf, name, tuned_parameters[clf_id], args.load_grids, args.load_labels, args.load_probs, args.random_search)
 	predicted_categories = le.inverse_transform(predicted_labels)
@@ -407,6 +412,8 @@ if (args.voting):
 		print (name)
 	print ("Weights:")
 	print (weights)
+
+	# Begin voting classification
 	clf = VotingClassifier(estimators=estimators, voting='soft', weights=weights)
 	predicted_labels, _ = classify(clf, "Voting Estimator", tuned_parameters["VE"], args.load_grids, args.load_labels, args.load_probs, args.random_search)
 	predicted_categories = le.inverse_transform(predicted_labels)
@@ -415,11 +422,11 @@ if (args.voting):
 		print (classification_report(predicted_labels, test_labels))
 		accuracy = accuracy_score(test_labels, predicted_labels)
 		print ("Accuracy: " + str(accuracy))
-		validation_results["Accuracy"][name] = accuracy 
+		validation_results["Accuracy"]["Voting"] = accuracy 
 	
 	# Outputting resulting dataframe to csv
-	print ("Outputting resulting dataframe in " + output_directories['csv'] + name + "_output.csv")	
-	validation_results["Predictions"][name] = predicted_labels
+	print ("Outputting resulting dataframe in " + output_directories['csv'] + "Voting" + "_output.csv")	
+	validation_results["Predictions"]["Voting"] = predicted_labels
 	dic = {
 		"Id" : test_df['Id'],
 		"Category" : predicted_categories
@@ -427,7 +434,7 @@ if (args.voting):
 	out_df = pd.DataFrame(dic, columns=['Id', 'Category'])
 	out_df.to_csv(output_directories['csv'] + "Voting" + "_output.csv", sep=',', index=False)
 
-if ([test_labels is not None]):
+if (test_labels is not None):
 	#create the ROC plot with the data generate from above
 	plt.plot([0, 1], [0, 1], '--', color=(0.6, 0.6, 0.6), label='Luck')
 	plt.xlim([-0.05, 1.05])
@@ -437,3 +444,4 @@ if ([test_labels is not None]):
 	plt.title('ROC')
 	plt.legend(loc="lower right")
 	plt.savefig(output_directories['plot']  + "roc_10fold.png")
+	# Output evaluation results here
