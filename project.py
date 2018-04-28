@@ -397,7 +397,6 @@ for clf_id, clf_info in classifier_list.items():
 	if (args.voting and weight != 0): # If weight is 0 the classifier will not be included in the voting classification
 		estimators += [(name, clf)]
 		weights += [weight]
-		print "skip"
 		continue
 	if (args.classifier is None and evaluation_name is None): # Skip classifiers that are only needed for the Voting Classifier
 		continue                  # This should ensure that Validation Results contains only data that will be outputted as long as the user doesn't ask for a specific classifier
