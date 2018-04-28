@@ -13,7 +13,7 @@ from nltk.stem.snowball import SnowballStemmer
 from nltk.stem.lancaster import LancasterStemmer
 from nltk.stem import WordNetLemmatizer 
 
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer, HashingVectorizer, TfidfTransformer
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer, HashingVectorizer, TfidfTransformer, TfidfVectorizer
 from sklearn.feature_selection import SelectFromModel
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
@@ -52,6 +52,16 @@ class LemmatizedStemmedCountVectorizer(CountVectorizer):
 		analyzer = super(LemmatizedStemmedCountVectorizer, self).build_analyzer()
 		return lambda doc: ([stemmer.stem(lemmatizer.lemmatize(w)) for w in analyzer(doc)])
 
+class StemmedTfidfVectorizer(TfidfVectorizer):
+	def build_analyzer(self):
+		analyzer = super(StemmedTfidfVectorizer, self).build_analyzer()
+		return lambda doc: ([stemmer.stem(w) for w in analyzer(doc)])
+
+class LemmatizedStemmedTfidfVectorizer(TfidfVectorizer):
+	def build_analyzer(self):
+		analyzer = super(LemmatizedStemmedTfidfVectorizer, self).build_analyzer()
+		return lambda doc: ([stemmer.stem(lemmatizer.lemmatize(w)) for w in analyzer(doc)])
+
 class Range(object):
     def __init__(self, start, end):
         self.start = start
@@ -74,13 +84,12 @@ k_fold = 10
 tuned_parameters = {
 		"SVC" : 
 		[	#{'tfidf__use_idf': [True], 'svd__n_components' : [100], 'clf__kernel': ['rbf'], 'clf__gamma': stats.expon(scale=.1), 'clf__C': stats.expon(scale=10), 'clf__class_weight': ['balanced']}
-			 {'tfidf__use_idf': [True], 'svd__n_components' : [100], 'clf__gamma': [0.6909752275782135], 'clf__C': [2.627930391414668], 'clf__class_weight': ['balanced'], 'clf__kernel': ['rbf'], 'clf__probability': [True]}
+			 {'clf__gamma': [0.6909752275782135], 'clf__C': [2.627930391414668], 'clf__class_weight': ['balanced'], 'clf__kernel': ['rbf'], 'clf__probability': [True]}
 		],
 
 		"GPC" : 
 		[
 			{
-				'svd__n_components' : [100],
 				"clf__optimizer": ["fmin_l_bfgs_b"],
 				"clf__n_restarts_optimizer": [1],
 			#	"clf__normalize_y": [False],
@@ -99,22 +108,22 @@ tuned_parameters = {
 
 		"LR" : 
 		[
-			{ 'svd__n_components' : [100], "clf__tol" : [1e-5] }
+			{ "clf__tol" : [1e-5] }
 		],
 
 		"RF" : 
 		[	
-			{'svd__n_components' : [100], 'clf__n_estimators' : [200], 'clf__class_weight': ['balanced']}
+			{ 'clf__n_estimators' : [200], 'clf__class_weight': ['balanced']}
 		],
 
 		"KNN" : 
 		[	
-			{'svd__n_components' : [100]}
+			{}
 		],
 
 		"KNNC" : 
 		[	
-			{'svd__n_components' : [100]}
+			{}
 		],
 
 		"VE" :
@@ -158,27 +167,37 @@ def create_wordcloud(dataframe, stop_words):
 def classify(classifier, name, grid_params, load_grids, load_labels, load_proba, random_search):
 	print("< Beginning " + name + " classification >")
 
-	#vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
-	#vectorizer = StemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
-	#vectorizer = CountVectorizer(tokenizer=LemmaTokenizer(), stop_words=ENGLISH_STOP_WORDS)
-	vectorizer = LemmatizedStemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
-	#vectorizer = HashingVectorizer(stop_words=ENGLISH_STOP_WORDS)
-	transformer = TfidfTransformer()
-	#feature_selection = SelectFromModel(LinearSVC())
 
 	# Initialization
-	if name == "Multinomial Naive Bayes" or name == "Voting Estimator": 
+	if name == "Multinomial Naive Bayes": 
+		vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
+		transformer = TfidfTransformer()
 		pipeline = Pipeline([
 			('vect', vectorizer),
 			('tfidf', transformer),
 			('clf', classifier)
 		])
-	else:
-		svd = TruncatedSVD(random_state=42)
+	elif name == "Voting Estimator":
+		#vectorizer = TfidfVectorizer(stop_words='english')
+		vectorizer = StemmedTfidfVectorizer(stop_words=ENGLISH_STOP_WORDS)
+		#vectorizer = StemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
+		#vectorizer = CountVectorizer(tokenizer=LemmaTokenizer(), stop_words=ENGLISH_STOP_WORDS)
+		#vectorizer = LemmatizedStemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
+		#vectorizer = HashingVectorizer(stop_words=ENGLISH_STOP_WORDS)
+		#feature_selection = SelectFromModel(LinearSVC())
 		pipeline = Pipeline([
 			('vect', vectorizer),
-			('tfidf', transformer),
-			('svd',svd),
+			('clf', classifier)
+		])
+	else:
+		#vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
+		vectorizer = StemmedTfidfVectorizer(stop_words=ENGLISH_STOP_WORDS)
+		transformer = TfidfTransformer()
+		svd = TruncatedSVD(random_state=42, n_components=100)
+		pipeline = Pipeline([
+			('vect', vectorizer),
+		#	('tfidf', transformer),
+		#	('svd',svd),
 		#	('fs', feature_selection),
 			('clf', classifier)
 		])
