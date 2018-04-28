@@ -191,6 +191,8 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 		])
 	else:
 		vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
+		#vectorizer = TfidfVectorizer(stop_words=ENGLISH_STOP_WORDS, preprocessor=lemmatizer.lemmatize, token_pattern=r"(?u)\b[a-zA-Z]+\'*[a-zA-Z]+\b")
+		#vectorizer = StemmedTfidfVectorizer(stop_words=ENGLISH_STOP_WORDS, token_pattern=r"(?u)\b[a-zA-Z]+\'*[a-zA-Z]+\b")
 		transformer = TfidfTransformer()
 		svd = TruncatedSVD(random_state=42, n_components=100)
 		pipeline = Pipeline([
@@ -374,7 +376,7 @@ print_step_info(step_name="Classification")
 classifier_list = {
 	#	"GPC" : (GaussianProcessClassifier(), "Gaussian Process Classifier","b"), # Don't run this unless you have a LOT of ram available
     #	"GNB" : (GaussianNB(), "Gaussian Naive Bayes","r"),
-		"KNNC": (KNeighborsClassifier(5, 0), "k-Nearest Neighbor Custom","g", 0, "KNN"),
+	#	"KNNC": (KNeighborsClassifier(5, 0), "k-Nearest Neighbor Custom","g", 0, "KNN"),
 		"KNN" : (neighbors.KNeighborsClassifier(n_neighbors=5), "k-Nearest Neighbor","g", 1, None),
 		"MNB" : (MultinomialNB(),"Multinomial Naive Bayes","y", 1, "Naive Bayes"),
 		"LR"  : (LogisticRegression(random_state=42), "Logistic Regression","k", 1, None),
@@ -392,12 +394,13 @@ for clf_id, clf_info in classifier_list.items():
 	if (args.classifier is not None and clf_id != args.classifier):
 		continue
 	clf, name, color, weight, evaluation_name = clf_info
-	if (args.classifier is None and evaluation_name is None): # Skip classifiers that are only needed for the Voting Classifier
-		continue                  # This should ensure that Validation Results contains only data that will be outputted as long as the user doesn't ask for a specific classifier
 	if (args.voting and weight != 0): # If weight is 0 the classifier will not be included in the voting classification
 		estimators += [(name, clf)]
 		weights += [weight]
+		print "skip"
 		continue
+	if (args.classifier is None and evaluation_name is None): # Skip classifiers that are only needed for the Voting Classifier
+		continue                  # This should ensure that Validation Results contains only data that will be outputted as long as the user doesn't ask for a specific classifier
 	predicted_labels, label_proba = classify(clf, name, tuned_parameters[clf_id], args.load_grids, args.load_labels, args.load_probs, args.random_search)
 	predicted_categories = le.inverse_transform(predicted_labels)
 
