@@ -179,7 +179,7 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 		])
 	elif name == "Voting Estimator":
 		#vectorizer = TfidfVectorizer(stop_words='english')
-		vectorizer = StemmedTfidfVectorizer(stop_words=ENGLISH_STOP_WORDS)
+		vectorizer = StemmedTfidfVectorizer(stop_words=ENGLISH_STOP_WORDS, token_pattern=r"(?u)\b[a-zA-Z]+\'*[a-zA-Z]+\b")
 		#vectorizer = StemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
 		#vectorizer = CountVectorizer(tokenizer=LemmaTokenizer(), stop_words=ENGLISH_STOP_WORDS)
 		#vectorizer = LemmatizedStemmedCountVectorizer(stop_words=ENGLISH_STOP_WORDS)
@@ -190,15 +190,13 @@ def classify(classifier, name, grid_params, load_grids, load_labels, load_proba,
 			('clf', classifier)
 		])
 	else:
-		#vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
-		vectorizer = StemmedTfidfVectorizer(stop_words=ENGLISH_STOP_WORDS)
+		vectorizer = CountVectorizer(stop_words=ENGLISH_STOP_WORDS)
 		transformer = TfidfTransformer()
 		svd = TruncatedSVD(random_state=42, n_components=100)
 		pipeline = Pipeline([
 			('vect', vectorizer),
-		#	('tfidf', transformer),
-		#	('svd',svd),
-		#	('fs', feature_selection),
+			('tfidf', transformer),
+			('svd',svd),
 			('clf', classifier)
 		])
 
