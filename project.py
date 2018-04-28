@@ -425,7 +425,7 @@ if (args.voting):
 		"Category" : predicted_categories
 	}
 	out_df = pd.DataFrame(dic, columns=['Id', 'Category'])
-	out_df.to_csv(output_directories['csv'] + name + "_output.csv", sep=',', index=False)
+	out_df.to_csv(output_directories['csv'] + "Voting" + "_output.csv", sep=',', index=False)
 
 if ([test_labels is not None]):
 	#create the ROC plot with the data generate from above
