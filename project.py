@@ -89,26 +89,21 @@ tuned_parameters = {
 		],
 		"MNB" : 
 		[
-			{
-				"clf__alpha" : [0.025]
-			}
+			{ "clf__alpha" : [0.025] }
 		],
 		"GNB" : 
 		[
-			{
-			}
+			{ }
 		],
 
 		"LR" : 
 		[
-			{
-				"clf__tol" : [1e-5]
-			}
+			{ 'svd__n_components' : [100], "clf__tol" : [1e-5] }
 		],
 
 		"RF" : 
 		[	
-			{'svd__n_components' : [100], 'clf__n_estimators' : [10,50,100,200], 'clf__class_weight': ['balanced']}
+			{'svd__n_components' : [100], 'clf__n_estimators' : [200], 'clf__class_weight': ['balanced']}
 		],
 
 		"KNN" : 
@@ -359,24 +354,28 @@ print_step_info(step_name="Classification")
 classifier_list = {
 	#	"GPC" : (GaussianProcessClassifier(), "Gaussian Process Classifier","b"), # Don't run this unless you have a LOT of ram available
     #	"GNB" : (GaussianNB(), "Gaussian Naive Bayes","r"),
-		"KNNC" : (KNeighborsClassifier(5, 0), "k-Nearest Neighbor Custom","g"),
-		"KNN" : (neighbors.KNeighborsClassifier(n_neighbors=5), "k-Nearest Neighbor","g"),
-		"MNB" : (MultinomialNB(),"Multinomial Naive Bayes","y"),
-	#	"LR"  : (LogisticRegression(random_state=42), "Logistic Regression","k"),
-		"RF"  : (RandomForestClassifier(n_estimators=100, class_weight='balanced'), "Random forest","m"),
-		"SVC" : (SVC(gamma=0.7, C=2.6, kernel='rbf', probability=True, class_weight='balanced'), "Support Vector Classifier","c")
+		"KNNC" : (KNeighborsClassifier(5, 0), "k-Nearest Neighbor Custom","g", 1.5),
+		"KNN" : (neighbors.KNeighborsClassifier(n_neighbors=5), "k-Nearest Neighbor","g", 1),
+		"MNB" : (MultinomialNB(),"Multinomial Naive Bayes","y", 1),
+		"LR"  : (LogisticRegression(random_state=42), "Logistic Regression","k", 1),
+		"RF"  : (RandomForestClassifier(n_estimators=100, class_weight='balanced'), "Random forest","m", 1),
+		"SVC" : (SVC(gamma=0.7, C=2.6, kernel='rbf', probability=True, class_weight='balanced'), "Support Vector Classifier","c", 1.5)
 }
 
 validation_results = {"Accuracy": {}, "ROC": {}, "CompGraph": {}, "Predictions": {}}
 
 estimators = []
+weights = []
 
 # Begining classifiaction
 for clf_id, clf_info in classifier_list.items():
 	if (args.classifier is not None and clf_id != args.classifier):
 		continue
-	clf, name, color = clf_info
+	clf, name, color, weight = clf_info
 	estimators += [(name, clf)]
+	weights += [weight]
+	if (args.voting):
+		continue
 	predicted_labels, label_proba = classify(clf, name, tuned_parameters[clf_id], args.load_grids, args.load_labels, args.load_probs, args.random_search)
 	predicted_categories = le.inverse_transform(predicted_labels)
 
@@ -403,7 +402,12 @@ for clf_id, clf_info in classifier_list.items():
 
 # Run the voting classifier if asked
 if (args.voting):
-	clf = VotingClassifier(estimators=estimators, voting='hard')
+	print ("Voting Estimators:")
+	for name, clf in estimators:
+		print (name)
+	print ("Weights:")
+	print (weights)
+	clf = VotingClassifier(estimators=estimators, voting='soft', weights=weights)
 	predicted_labels, _ = classify(clf, "Voting Estimator", tuned_parameters["VE"], args.load_grids, args.load_labels, args.load_probs, args.random_search)
 	predicted_categories = le.inverse_transform(predicted_labels)
 	if (test_labels is not None):
