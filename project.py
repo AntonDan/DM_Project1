@@ -24,7 +24,7 @@ from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.naive_bayes import MultinomialNB, GaussianNB
 from sklearn.decomposition import TruncatedSVD
 from sklearn.pipeline import Pipeline
-from sklearn.metrics import classification_report, accuracy_score, roc_curve, auc
+from sklearn.metrics import classification_report, accuracy_score, roc_curve, auc, precision_recall_fscore_support
 from sklearn.utils import shuffle
 from sklearn import svm, datasets, preprocessing 
 from scipy import stats
@@ -63,16 +63,16 @@ class LemmatizedStemmedTfidfVectorizer(TfidfVectorizer):
 		return lambda doc: ([stemmer.stem(lemmatizer.lemmatize(w)) for w in analyzer(doc)])
 
 class Range(object):
-    def __init__(self, start, end):
-        self.start = start
-        self.end = end
-    def __eq__(self, other):
-        return self.start <= other <= self.end
+	def __init__(self, start, end):
+		self.start = start
+		self.end = end
+	def __eq__(self, other):
+		return self.start <= other <= self.end
 
 # Public parameteres
 output_directories = {
 	'main' : '',
-	'wourcloud' : 'wordclouds/',
+	'wordcloud' : 'wordclouds/',
 	'data' : 'data/',
 	'csv' : 'csv/',
 	'plot' : 'plots/'
@@ -292,14 +292,13 @@ def print_seperator():
 parser = argparse.ArgumentParser()
 parser.add_argument("--train-file", help="The path to the training data file",  action="store", required=True)
 parser.add_argument("--test-file", help="The path to the test data file", action="store", default=None)
-parser.add_argument("--classifier", help="The classifier that will be used", action="store", default=None, choices=["SVC", "GPC", "MNB", "RF", "KNN", "GNB", "KNNC", "LR"])
+parser.add_argument("--classifier", help="The classifier that will be used", action="store", default=None, choices=["SVC", "GPC", "MNB", "RF", "KNN", "GNB", "KNNC", "LR", "VE"])
 parser.add_argument("--output-dir", help="Output directory. ", default="./output/")
-parser.add_argument("--wordcloud", help="Load label probability data previously saved in .pic files", action="store_true")
 parser.add_argument("--load-grids", help="Load grid data previously saved in .pic files", action="store_true")
 parser.add_argument("--load-labels", help="Load label data previously saved in .pic files", action="store_true")
 parser.add_argument("--load-probs", help="Load label probability data previously saved in .pic files", action="store_true")
 parser.add_argument("--random-search", help="Load label probability data previously saved in .pic files", action="store_true")
-parser.add_argument("--voting", help="Run a voting estimator with all available classifiers", action="store_true")
+# parser.add_argument("--voting", help="Run a voting estimator with all available classifiers", action="store_true")
 parser.add_argument("--subsample-train", help="Create a balanced subsample of the train data", action="store", type=float, default=None, choices=[Range(0.01, 1.0)])
 
 # Argument parsing and validation
@@ -363,11 +362,10 @@ test_data = test_data.apply(f, 1)
 
 
 # Wordcloud creation
-if (args.wordcloud):
-	print_step_info(step_name="Creating Wordclouds")
-	additional_stop_words = ['said', 'new', 'film', 'year', 'years', 'like', 'player', 'players', 'team', 'teams', 'game', 'say', 'time', 'times', 'says', 'club', 'movie', 'people']
-	stop_words = ENGLISH_STOP_WORDS.union(additional_stop_words).union(set(STOPWORDS))
-	create_wordcloud(dataframe=df, stop_words=stop_words)
+print_step_info(step_name="Creating Wordclouds")
+additional_stop_words = ['said', 'new', 'film', 'year', 'years', 'like', 'player', 'players', 'team', 'teams', 'game', 'say', 'time', 'times', 'says', 'club', 'movie', 'people']
+stop_words = ENGLISH_STOP_WORDS.union(additional_stop_words).union(set(STOPWORDS))
+create_wordcloud(dataframe=df, stop_words=stop_words)
 
 # Classification
 print_step_info(step_name="Classification")
@@ -375,8 +373,8 @@ print_step_info(step_name="Classification")
 # Initialization
 classifier_list = {
 	#	"GPC" : (GaussianProcessClassifier(), "Gaussian Process Classifier","b"), # Don't run this unless you have a LOT of ram available
-    #	"GNB" : (GaussianNB(), "Gaussian Naive Bayes","r"),
-	#	"KNNC": (KNeighborsClassifier(5, 0), "k-Nearest Neighbor Custom","g", 0, "KNN"),
+	#	"GNB" : (GaussianNB(),  "Gaussian Naive Bayes","r"),
+		"KNNC": (KNeighborsClassifier(5, 0), "k-Nearest Neighbor Custom","g", 0, "KNN"),
 		"KNN" : (neighbors.KNeighborsClassifier(n_neighbors=5), "k-Nearest Neighbor","g", 1, None),
 		"MNB" : (MultinomialNB(),"Multinomial Naive Bayes","y", 1, "Naive Bayes"),
 		"LR"  : (LogisticRegression(random_state=42), "Logistic Regression","k", 1, None),
@@ -385,18 +383,20 @@ classifier_list = {
 }
 
 validation_results = {"Accuracy": {}, "ROC": {}, "CompGraph": {}, "Predictions": {}}
+evaluation_metric_dict = dict()
 
+columns = []
 estimators = []
 weights = []
 
 # Begining classifiaction
 for clf_id, clf_info in classifier_list.items():
-	if (args.classifier is not None and clf_id != args.classifier):
-		continue
 	clf, name, color, weight, evaluation_name = clf_info
-	if (args.voting and weight != 0): # If weight is 0 the classifier will not be included in the voting classification
-		estimators += [(name, clf)]
-		weights += [weight]
+	if (args.classifier is None or (args.classifier is not None and args.classifier == "VE")):
+		if (weight != 0): # If weight is 0 the classifier will not be included in the voting classification
+			estimators += [(name, clf)]
+			weights += [weight]
+	if (args.classifier is not None and clf_id != args.classifier):
 		continue
 	if (args.classifier is None and evaluation_name is None): # Skip classifiers that are only needed for the Voting Classifier
 		continue                  # This should ensure that Validation Results contains only data that will be outputted as long as the user doesn't ask for a specific classifier
@@ -406,13 +406,33 @@ for clf_id, clf_info in classifier_list.items():
 	# Outputting results
 	if (test_labels is not None):
 		print_step_info(step_name="Classification Report")
-		print (classification_report(predicted_labels, test_labels))
+		print (classification_report(test_labels, predicted_labels))
+
+		clf_rep = precision_recall_fscore_support(test_labels, predicted_labels)
+		data_dict = {
+				 "precision" :clf_rep[0]
+				,"recall" : clf_rep[1]
+				,"f1-score" : clf_rep[2]
+				,"support" : clf_rep[3]
+				}
+		data_df = pd.DataFrame(data_dict, index = le.classes_)
+		avg_tot = (data_df.apply(lambda x: round(x.mean(), 6) if x.name!="support" else  round(x.sum(), 6)).to_frame().T)
+		avg_tot.index = ["avg/total"]
+		data_df = data_df.append(avg_tot)
+
+		precision = data_df.tail(1).iloc[0]['precision']
+		recall = data_df.tail(1).iloc[0]['recall']
+		f_score = data_df.tail(1).iloc[0]['f1-score']
+
 		accuracy = accuracy_score(test_labels, predicted_labels)
 		print ("Accuracy: " + str(accuracy))
 		validation_results["Accuracy"][name] = accuracy 
 		if (label_proba is not None):
 			roc_auc = roc_curve_estimator(test_labels, label_proba, name, color)
 			validation_results["ROC"][name] = roc_auc
+
+		evaluation_metric_dict[evaluation_name] = [accuracy, precision, recall, f_score]
+		columns.append(evaluation_name)
 		
 	# Outputting resulting dataframe to csv
 	print ("Outputting resulting dataframe in " + output_directories['csv'] + name + "_output.csv")	
@@ -422,10 +442,10 @@ for clf_id, clf_info in classifier_list.items():
 		"Category" : predicted_categories
 	}
 	out_df = pd.DataFrame(dic, columns=['Id', 'Category'])
-	out_df.to_csv(output_directories['csv'] + name + "_output.csv", sep=',', index=False)
+	out_df.to_csv(output_directories['csv'] + name + "_output.csv", sep='\t', index=False)
 
-# Run the voting classifier if asked
-if (args.voting):
+# Don't run the voting classifier if specific classifier was asked
+if (args.classifier is None or (args.classifier is not None and args.classifier == "VE")):
 	print ("Voting Estimators:")
 	for name, clf in estimators:
 		print (name)
@@ -439,9 +459,29 @@ if (args.voting):
 	if (test_labels is not None):
 		print_step_info(step_name="Classification Report")
 		print (classification_report(predicted_labels, test_labels))
+
+		clf_rep = precision_recall_fscore_support(test_labels, predicted_labels)
+		data_dict = {
+				 "precision" :clf_rep[0]
+				,"recall" : clf_rep[1]
+				,"f1-score" : clf_rep[2]
+				,"support" : clf_rep[3]
+				}
+		data_df = pd.DataFrame(data_dict, index = le.classes_)
+		avg_tot = (data_df.apply(lambda x: round(x.mean(), 6) if x.name!="support" else  round(x.sum(), 6)).to_frame().T)
+		avg_tot.index = ["avg/total"]
+		data_df = data_df.append(avg_tot)
+
+		precision = data_df.tail(1).iloc[0]['precision']
+		recall = data_df.tail(1).iloc[0]['recall']
+		f_score = data_df.tail(1).iloc[0]['f1-score']
+
 		accuracy = accuracy_score(test_labels, predicted_labels)
 		print ("Accuracy: " + str(accuracy))
 		validation_results["Accuracy"]["Voting"] = accuracy 
+
+		evaluation_metric_dict["Voting Estimator"] = [accuracy, precision, recall, f_score]
+		columns.append("Voting Estimator")
 	
 	# Outputting resulting dataframe to csv
 	print ("Outputting resulting dataframe in " + output_directories['csv'] + "Voting" + "_output.csv")	
@@ -451,7 +491,11 @@ if (args.voting):
 		"Category" : predicted_categories
 	}
 	out_df = pd.DataFrame(dic, columns=['Id', 'Category'])
-	out_df.to_csv(output_directories['csv'] + "Voting" + "_output.csv", sep=',', index=False)
+	out_df.to_csv(output_directories['csv'] + "Voting" + "_output.csv", sep='\t', index=False)
+
+
+evaluation_metric_df = pd.DataFrame(evaluation_metric_dict, columns=columns, index=['Accuracy', 'Precision', 'Recall', 'F-Measure'])
+evaluation_metric_df.to_csv(output_directories['csv'] + "EvaluationMetric_10fold.csv", sep='\t')
 
 if (test_labels is not None):
 	#create the ROC plot with the data generate from above
